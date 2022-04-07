@@ -1,5 +1,5 @@
 # Data-driven dimensional analysis
- This code contains various machine learning methods for data-driven non-dimensionalization based on simulation/experimental data. Check out the details in the Arxiv paper: [https://arxiv.org/abs/2202.04643](Dimensionally Consistent Learning with Buckingham Pi).
+ This code contains various machine learning methods for data-driven non-dimensionalization based on simulation/experimental data. Check out the details in the Arxiv paper: [Dimensionally Consistent Learning with Buckingham Pi](https://arxiv.org/abs/2202.04643).
 
 ## Code summary:
 - testcases: tests all the methods on various problems: Blasius boundary layer, bead on a rotating hoop, Rayleigh-Benard problem
