@@ -57,7 +57,6 @@ def fit_allnondim(fitting_class, nondim_list, num_nondim):
     for x in input_combinations:
         # print(i/len(input_combinations))
         print(x)
-        #xarr = np.array(x).T
         xarr = np.vstack(x)
         test_loss = fitting_class.loss(xarr)
         loss_list.append(test_loss)

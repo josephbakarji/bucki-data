@@ -12,9 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from tensorflow import keras
 import tensorflow as tf
 import pdb
-
-## TODO:
-# - add plotting class in vizualization.py
+from tqdm import tqdm
 
 #############################################################
 #############################################################
@@ -31,18 +29,17 @@ class KRidgeReg:
                     l1_reg=1e-3, 
                     alpha=1e-4, 
                     kernel='rbf', 
-                    gamma=10):
+                    gamma=1):
 
-        ## !! All inputs are logged - scaling doesn't work otherwise
         self.inputs = np.log(inputs) 
         # if len(np.where(self.inputs==float('inf'))) > 0:
         #     raise Exception('data has infinities')
         self.outputs = outputs
         self.krr = KernelRidge(alpha=alpha, kernel=kernel, gamma=gamma)
 
-        ## To normalize need to define log(inputs) and work with them
         self.inputs_train, self.inputs_test, self.outputs_train, self.outputs_test = \
-                train_test_split(inputs, outputs, test_size=test_size, shuffle=True)
+                train_test_split(self.inputs, self.outputs, test_size=test_size, shuffle=False)
+
 
         self.dim_matrix = dim_matrix
         self.l1_reg = l1_reg
@@ -54,113 +51,69 @@ class KRidgeReg:
         res = self.optimize(True)
         return self.reshape_x(res.x)
 
-    def multi_run(self, ntrials=10):
-        min_loss = 1e8
-        x = None
-        for i in range(ntrials):
+    def multi_run(self, ntrials=10, min_loss=1e8):
+        x_list = []
+        loss_list = []
+        for i in tqdm(range(ntrials)):
             try:
                 res = self.optimize(False)
                 if self.use_test_set:
-                    final_loss = 1 - self.krr.score(np.exp(self.inputs_test @ self.reshape_x(res.x)), self.outputs_test)
+                    final_loss = self.loss(res.x, self.inputs_test, self.outputs_test, self.krr, l1_reg=self.l1_reg, dim=self.num_nondim)
                 else:
                     final_loss = res.fun
 
+                # Can get minimum out of function from x_list and loss_list
                 if final_loss < min_loss:
                     x = self.reshape_x(res.x)
                     min_loss = final_loss 
                     print(min_loss)
+                    print(x)
+                else:
+                    x = None
+                
+                x_list.append(x)
+                loss_list.append(final_loss)
 
             # If optimization fails, try again
             except ValueError:
+                x_list.append(-1)
+                loss_list.append(None)
                 pass
-        if x is None:
+
+        AllNones = True
+        for x in x_list:
+            if x is not None:
+                AllNones = False
+                break
+        if AllNones:
             raise Exception('did not find optimal solution')
 
-        # might want to return loss too
-        return x
+        return x, x_list, loss_list
 
     def optimize(self, display=True):
         x0 = rng.randn(self.dim_matrix.shape[1], self.num_nondim)
-        res = minimize(lambda x: self.loss(x, l1_reg=self.l1_reg),
-                    x0, constraints=[{'type':'eq', 'fun': self.constr}], options={'disp': display})
+        res = minimize(lambda x: self.loss(x, self.inputs_train, self.outputs_train, self.krr, l1_reg=1e-4, dim=x0.shape[1]),
+            x0,
+            constraints=[{'type':'eq', 'fun': self.constr}],
+            options={'disp': display})
         return res
 
-    def loss(self, x, l1_reg=0):
-        ## L2 might help (?)
-        # Consider other metrics - score vs. rmse 
-        theta_train = np.exp(self.inputs_train @ self.reshape_x(x))
-        self.krr.fit(theta_train, self.outputs_train)
-        if self.use_test_set:
-            theta_test = np.exp(self.inputs_test @ self.reshape_x(x))
-            return 1 - self.krr.score(theta_test, self.outputs_test) + l1_reg*np.linalg.norm(x, ord=1)
-        else:
-            return 1 - self.krr.score(theta_train, self.outputs_train) + l1_reg*np.linalg.norm(x, ord=1)
+    def loss(self, x, P, q, krr, l1_reg=0, dim=1):
+        pi = np.exp(P @ np.reshape(x, [P.shape[1], dim]))
+        krr.fit(pi, q)
+        return 1 - krr.score(pi, q) + self.l1_reg*np.linalg.norm(x, ord=1)
 
     def constr(self, x):
         return (self.dim_matrix @ self.reshape_x(x)).flatten()
 
     def reshape_x(self, x):
-        # There might be a neater way of doing this
-        if len(self.inputs.shape)>1:
-            return np.reshape(x, [self.inputs.shape[1], self.num_nondim])
-        else:
-            return x
+        return np.reshape(x, [self.inputs.shape[1], self.num_nondim])
 
-    def normalize(self):
-        self.inputs_train = self.scaler.fit_transform(self.inputs_train)
-        self.inputs_test = self.scaler.transform(self.inputs_test)
-        
-        
-
-#####################################################################################
-#####################################################################################
-        
-class SVMClassifier:
-    def __init__(self, inputs, outputs, dim_matrix, 
-                    test_size= 0.15, 
-                    num_nondim=1,
-                    use_test_set=True,
-                    normalize=False,
-                    l1_reg=1e-3, 
-                    alpha=1e-4, 
-                    kernel='rbf', 
-                    gamma=10):
-
-        ## !! All inputs are logged - scaling doesn't work otherwise
-        self.inputs = np.log(inputs) 
-        # if len(np.where(self.inputs==float('inf'))) > 0:
-        #     raise Exception('data has infinities')
-        self.outputs = outputs
-        self.classifier = SVC(C=alpha, kernel=kernel, gamma=gamma)
-
-        ## To normalize need to define log(inputs) and work with them
-        self.inputs_train, self.inputs_test, self.outputs_train, self.outputs_test = \
-                train_test_split(inputs, outputs, test_size=test_size, shuffle=True)
-
-        self.l1_reg = l1_reg
-        self.num_nondim = num_nondim
-        self.use_test_set = use_test_set
-
-    def loss(self, x, l1_reg=0):
-        ## L2 might help (?)
-        # Consider other metrics - score vs. rmse 
-        theta_train = np.exp(self.inputs_train @ self.reshape_x(x))
-        self.classifier.fit(theta_train, self.outputs_train)
-        if self.use_test_set:
-            theta_test = np.exp(self.inputs_test @ self.reshape_x(x))
-            return 1 - self.classifier.score(theta_test, self.outputs_test) + l1_reg*np.linalg.norm(x, ord=1)
-        else:
-            return 1 - self.classifier.score(theta_train, self.outputs_train) + l1_reg*np.linalg.norm(x, ord=1)
-
-    def reshape_x(self, x):
-        # There might be a neater way of doing this
-        if len(self.inputs.shape)>1:
-            return np.reshape(x, [self.inputs.shape[1], self.num_nondim])
-        else:
-            return x
-
-#####################################################################################
-#####################################################################################
+    # def normalize(self):
+    #     self.inputs_train = self.scaler.fit_transform(self.inputs_train)
+    #     self.inputs_test = self.scaler.transform(self.inputs_test)
+    
+##################
 
 class BuckyNet:
     """
@@ -250,7 +203,6 @@ class BuckyNet:
 #####################################################################################
 
 
-
 class NeuralNet:
     """
     This class simply fits inputs to outputs with a neural network, using the .loss method
@@ -318,12 +270,11 @@ class NeuralNet:
 #############################################################
 #############################################################
 
-class KRidgeReg_struct:
-# Same as KRidgeReg but uses DataStruct - BREAKS
-## TODO:
-# Re-check code below - getting worse results when using DataStruct in KRdigeReg
-# Originally replaces all codes above using the DataStruct class (below), but it's giving strange results so I switched back to old version
 
+#####################################################################################
+#####################################################################################
+        
+class SVMClassifier:
     def __init__(self, inputs, outputs, dim_matrix, 
                     test_size= 0.15, 
                     num_nondim=1,
@@ -334,96 +285,35 @@ class KRidgeReg_struct:
                     kernel='rbf', 
                     gamma=10):
 
-        self.krr = KernelRidge(alpha=alpha, kernel=kernel, gamma=gamma)
-        # It might be better to pass in the data object as input to the class.
-        self.data = DataStruct(inputs, outputs, log_inputs=True, normalize=False, test_size=test_size, dev_size=None, shuffle=True)
-        self.dim_matrix = dim_matrix
+        ## !! All inputs are logged - scaling doesn't work otherwise
+        self.inputs = np.log(inputs) 
+        # if len(np.where(self.inputs==float('inf'))) > 0:
+        #     raise Exception('data has infinities')
+        self.outputs = outputs
+        self.classifier = SVC(C=alpha, kernel=kernel, gamma=gamma)
+
+        ## To normalize need to define log(inputs) and work with them
+        self.inputs_train, self.inputs_test, self.outputs_train, self.outputs_test = \
+                train_test_split(inputs, outputs, test_size=test_size, shuffle=True)
+
         self.l1_reg = l1_reg
         self.num_nondim = num_nondim
         self.use_test_set = use_test_set
 
-    def single_run(self):
-        res = self.optimize(True)
-        return self.reshape_x(res.x)
-
-    def multi_run(self, ntrials=10):
-        min_loss = 1e8
-        x = None
-        for i in range(ntrials):
-            try:
-                res = self.optimize(False)
-                if self.use_test_set:
-                    final_loss = 1 - self.krr.score(np.exp(self.data.inputs_test @ self.reshape_x(res.x)), self.data.outputs_test)
-                else:
-                    final_loss = res.fun
-
-                if final_loss < min_loss:
-                    x = self.reshape_x(res.x)
-                    min_loss = final_loss 
-                    print(min_loss)
-
-            # If optimization fails, try again
-            except ValueError:
-                pass
-        if x is None:
-            raise Exception('did not find optimal solution')
-
-        # might want to return loss too
-        return x
-
-    def optimize(self, display=True):
-        x0 = rng.randn(self.dim_matrix.shape[1], self.num_nondim)
-        res = minimize(lambda x: self.loss(x, l1_reg=self.l1_reg),
-                    x0, constraints=[{'type':'eq', 'fun': self.constr}], options={'disp': display})
-        return res
-
     def loss(self, x, l1_reg=0):
         ## L2 might help (?)
         # Consider other metrics - score vs. rmse 
-        theta_train = np.exp(self.data.inputs_train @ self.reshape_x(x))
-        self.krr.fit(theta_train, self.data.outputs_train)
-        return 1 - self.krr.score(theta_train, self.data.outputs_train) + l1_reg*np.linalg.norm(x, ord=1)
-
-    def constr(self, x):
-        return (self.dim_matrix @ self.reshape_x(x)).flatten()
+        theta_train = np.exp(self.inputs_train @ self.reshape_x(x))
+        self.classifier.fit(theta_train, self.outputs_train)
+        if self.use_test_set:
+            theta_test = np.exp(self.inputs_test @ self.reshape_x(x))
+            return 1 - self.classifier.score(theta_test, self.outputs_test) + l1_reg*np.linalg.norm(x, ord=1)
+        else:
+            return 1 - self.classifier.score(theta_train, self.outputs_train) + l1_reg*np.linalg.norm(x, ord=1)
 
     def reshape_x(self, x):
         # There might be a neater way of doing this
-        if len(self.data.inputs.shape)>1:
-            return np.reshape(x, [self.data.inputs.shape[1], self.num_nondim])
+        if len(self.inputs.shape)>1:
+            return np.reshape(x, [self.inputs.shape[1], self.num_nondim])
         else:
             return x
-
-
-###############################################3
-
-class DataStruct:
-# This class puts data in object where it can be split, scaled, log()ed and transformed etc. 
-# TODO: including it in code causes some problems:
-    def __init__(self, inputs, outputs, log_inputs=True, normalize=False, test_size=0.15, dev_size=0.15, shuffle=True):
-        self.inputs = inputs
-        if log_inputs:
-            self.inputs = np.log(inputs)
-            # Check if array has infinities or nans
-        self.outputs = outputs
-        self.scaler = StandardScaler()
-        if normalize:
-            self.scaler.fit_transform(self.inputs)
-            # To transform back use self.scaler.inverse_transform(x)
-            # See https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html
-
-        self.inputs_test = None
-        self.outputs_test = None
-        self.inputs_dev = None
-        self.outputs_dev = None
-        self.inputs_train = None
-        self.outputs_train = None
-
-        if test_size is not None:
-            self.inputs_train, self.inputs_test, self.outputs_train, self.outputs_test = \
-                train_test_split(inputs, outputs, test_size=test_size, shuffle=shuffle)
-            if dev_size is not None:
-            # Makes sure test_size is not none 
-                self.inputs_train, self.inputs_dev, self.outputs_train, self.outputs_dev = \
-                        train_test_split(self.inputs_train, self.outputs_train, test_size=dev_size, shuffle=shuffle) 
-
