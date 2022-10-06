@@ -49,12 +49,12 @@ hyperparams = {
 'num_modes': [1, 2, 3, 4, 5, 6, 7, 8, 9],
 'num_nondim': [2, 3],
 'l1_reg': [0.0, 1e-6, 1e-3],
-'num_layers': [2, 3],
+'num_layers': [2, 3, 4],
 'num_neurons': [20, 40, 60],
-'nullspace_loss': [0.5, 0.8, 1.0]
+'nullspace_loss': [0.5, 1.0]
 }
 
-savedir = './'
+savedir = './data/'
 savefile = 'hoop_buckinet_hyper_modes.json'
 data_list = []
 hyperparams_list = get_hyperparameter_list(hyperparams)
@@ -83,8 +83,9 @@ for hyperp in hyperparams_list:
 
 
     x = B.single_run()
+    loss = B.model.evaluate(B.inputs_test, B.outputs_test)
 
-    data = {'params':params, 'x': x.tolist()}
+    data = {'params':params, 'x': x.T.tolist(), 'loss': loss}
 
     save_results(data, savefile, savedir)
 

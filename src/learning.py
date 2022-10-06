@@ -182,7 +182,7 @@ class BuckyNet:
 
         if self.nullspace_loss is not None:
             P = tf.constant(self.dim_matrix, dtype=tf.float32)
-            model.add_loss(lambda: self.nullspace_loss * tf.reduce_mean(tf.square( tf.matmul(P, model.layers[1].kernel))) )
+            model.add_loss(lambda: self.nullspace_loss * tf.reduce_max(tf.square( tf.matmul(P, model.layers[1].kernel))) )
 
         return model
 
